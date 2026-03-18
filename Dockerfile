@@ -12,7 +12,7 @@ RUN npm run build
 # ============================================================
 # Stage 2: Build Backend (Rust)
 # ============================================================
-FROM rust:1.82-bookworm AS backend-builder
+FROM rust:1.85-bookworm AS backend-builder
 
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
