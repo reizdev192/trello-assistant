@@ -1,0 +1,35 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Production build served by Rust
+/dist
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ollama models (managed by Ollama, not git)
+models/
+*.gguf
+*.bin
+
+# Logs
+*.log

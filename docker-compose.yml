@@ -1,0 +1,82 @@
+# ============================================================
+# Trello Assistant - Docker Compose
+# Usage: docker compose up -d
+# ============================================================
+
+services:
+  # ── App: Rust Backend + React Frontend ──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: trello-assistant
+    restart: unless-stopped
+    ports:
+      - "3225:3000"
+    env_file:
+      - .env.docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - trello-net
+
+  # ── Redis: Cache Layer ──
+  redis:
+    image: redis:7-alpine
+    container_name: trello-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-trello_redis_2026}
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-trello_redis_2026}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - trello-net
+
+  # ── Ollama: Local LLM ──
+  ollama:
+    image: ollama/ollama:latest
+    container_name: trello-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - trello-net
+
+  # ── Ollama Init: Auto-pull model ──
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: trello-ollama-init
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:0.8b}
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        echo "⏳ Waiting for Ollama server..."
+        until curl -sf http://ollama:11434/api/tags > /dev/null 2>&1; do
+          sleep 2
+        done
+        echo "✅ Ollama server is ready!"
+        echo "📦 Pulling model: $${OLLAMA_MODEL}..."
+        ollama pull $${OLLAMA_MODEL}
+        echo "✅ Model $${OLLAMA_MODEL} is ready!"
+    restart: "no"
+    networks:
+      - trello-net
+
+volumes:
+  redis-data:
+  ollama-data:
+
+networks:
+  trello-net:
+    driver: bridge
