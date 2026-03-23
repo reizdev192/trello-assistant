@@ -25,6 +25,47 @@ export interface ChatResponse {
   response: string;
   matched_cards: TrelloCard[];
   provider: string;
+  analysis?: AnalysisData;
+}
+
+export interface AnalysisData {
+  analysis_type: string;
+  summary?: string;
+  chart_data?: ChartDataForUI;
+  insights: string[];
+  time_stats?: TimeStats;
+}
+
+export interface ChartDataForUI {
+  chart_type: string;
+  labels: string[];
+  datasets: ChartDataset[];
+}
+
+export interface ChartDataset {
+  label: string;
+  data: number[];
+}
+
+export interface TimeStats {
+  total_est_hours: number;
+  avg_hours_per_card: number;
+  cards_with_est: number;
+  cards_without_est: number;
+  by_member: MemberTimeStat[];
+  by_list: ListTimeStat[];
+}
+
+export interface MemberTimeStat {
+  name: string;
+  cards: number;
+  hours: number;
+}
+
+export interface ListTimeStat {
+  name: string;
+  cards: number;
+  hours: number;
 }
 
 export interface HealthResponse {

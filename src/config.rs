@@ -7,16 +7,10 @@ pub struct Config {
     pub trello_token: String,
     pub trello_board_id: String,
 
-    // AI Provider
-    pub ai_provider: String,
-
-    // Gemini
-    pub gemini_api_key: Option<String>,
-    pub gemini_model: String,
-
-    // Ollama
-    pub ollama_url: String,
-    pub ollama_model: String,
+    // AI (OpenAI-compatible API)
+    pub ai_base_url: String,
+    pub ai_api_key: String,
+    pub ai_model: String,
 
     // Redis
     pub redis_url: String,
@@ -42,16 +36,12 @@ impl Config {
             trello_board_id: env::var("TRELLO_BOARD_ID")
                 .map_err(|_| anyhow::anyhow!("TRELLO_BOARD_ID is required"))?,
 
-            ai_provider: env::var("AI_PROVIDER").unwrap_or_else(|_| "auto".to_string()),
-
-            gemini_api_key: env::var("GEMINI_API_KEY").ok().filter(|s| !s.is_empty()),
-            gemini_model: env::var("GEMINI_MODEL")
-                .unwrap_or_else(|_| "gemini-2.0-flash".to_string()),
-
-            ollama_url: env::var("OLLAMA_URL")
-                .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            ollama_model: env::var("OLLAMA_MODEL")
-                .unwrap_or_else(|_| "qwen3.5:0.8b".to_string()),
+            ai_base_url: env::var("AI_BASE_URL")
+                .map_err(|_| anyhow::anyhow!("AI_BASE_URL is required"))?,
+            ai_api_key: env::var("AI_API_KEY")
+                .map_err(|_| anyhow::anyhow!("AI_API_KEY is required"))?,
+            ai_model: env::var("AI_MODEL")
+                .unwrap_or_else(|_| "gemini-2.5-flash-lite".to_string()),
 
             redis_url: env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),

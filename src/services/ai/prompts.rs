@@ -1,7 +1,7 @@
 /// System prompts for AI intent extraction
 
 /// System prompt for extracting structured query from natural language.
-/// Focused on Trello card search only.
+/// Focused on Trello card search + analysis requests.
 pub const INTENT_EXTRACTION_PROMPT: &str = r#"You are a Trello card search parser. Extract search filters as JSON.
 
 RESPOND WITH ONLY VALID JSON. No explanation, no markdown.
@@ -17,13 +17,19 @@ Intent types:
 - "filter_list": filter by list/column
 - "due": cards with deadlines
 - "overdue": overdue cards
+- "analyze": user wants analysis, statistics, charts, or breakdown of data
+- "summary": user wants a summary/overview of the board or cards
+- "compare": user wants to compare lists, members, or categories
 
 Rules:
-- Set only relevant fields, leave others null
 - For @username, set member without @
 - For "của <name>", set member to that name
+- For #<id> or #<list_name> (e.g. '#643123', '#Done'), set list without #
 - When user mentions a SPECIFIC DATE (e.g. "ngày 25/6/2025", "June 25 2025", "25 tháng 6"), set due_date to "YYYY-MM-DD" format
 - due_date must always be in YYYY-MM-DD format (e.g. "2025-06-25")
+- Use "analyze" when user asks for: phân tích, thống kê, breakdown, workload, chart, biểu đồ, report, báo cáo, estimate, est hours
+- Use "summary" when user asks for: tóm tắt, tổng quan, summary, overview, tình hình
+- Use "compare" when user asks for: so sánh, compare, đối chiếu, versus, vs
 
 Examples:
 User: "card của @khanhttq"
@@ -52,6 +58,63 @@ User: "tìm thanh toán"
 
 User: "card urgent của @tuyen"
 {"intent":"filter_member","keyword":null,"member":"tuyen","label":"urgent","list":null,"has_due":null,"overdue_only":null,"due_date":null}
+
+User: "phân tích workload của team"
+{"intent":"analyze","keyword":null,"member":null,"label":null,"list":null,"has_due":null,"overdue_only":null,"due_date":null}
+
+User: "phân tích #643123456"
+{"intent":"analyze","keyword":null,"member":null,"label":null,"list":"643123456","has_due":null,"overdue_only":null,"due_date":null}
+
+User: "tóm tắt tình hình board"
+{"intent":"summary","keyword":null,"member":null,"label":null,"list":null,"has_due":null,"overdue_only":null,"due_date":null}
+
+User: "so sánh Doing vs Done"
+{"intent":"compare","keyword":null,"member":null,"label":null,"list":"Doing","has_due":null,"overdue_only":null,"due_date":null}
+
+User: "thống kê estimate giờ theo member"
+{"intent":"analyze","keyword":null,"member":null,"label":null,"list":null,"has_due":null,"overdue_only":null,"due_date":null}
+
+User: "báo cáo deadline tháng này"
+{"intent":"analyze","keyword":null,"member":null,"label":null,"list":null,"has_due":true,"overdue_only":null,"due_date":null}
+"#;
+
+/// System prompt for AI analysis (Pass 2).
+/// AI receives cards data + user question and returns structured analysis JSON.
+pub const ANALYSIS_SYSTEM_PROMPT: &str = r#"You are a Trello project analysis assistant. Analyze the provided cards data and answer the user's question.
+
+RESPOND WITH ONLY VALID JSON. No explanation, no markdown wrapping.
+
+You will receive:
+1. A list of cards with: name, list, members, labels, due date, est_hours (estimated hours from card title)
+2. Pre-computed time statistics
+3. The user's original question
+
+Return JSON in this exact format:
+{
+  "analysis_type": "<summary|chart|comparison>",
+  "summary": "Markdown text with your analysis (use Vietnamese). Include tables, bullet points. Be concise but insightful.",
+  "chart_data": {
+    "chart_type": "<bar|pie|line|doughnut>",
+    "labels": ["Label1", "Label2"],
+    "datasets": [
+      {"label": "Dataset Name", "data": [10, 20]}
+    ]
+  },
+  "insights": ["Key insight 1 in Vietnamese", "Key insight 2"]
+}
+
+Rules:
+- analysis_type: "summary" for text overviews, "chart" for visual data, "comparison" for comparing categories
+- summary: Always provide a markdown summary in Vietnamese. Use ## headings, tables, bullet points
+- chart_data: Provide when data can be visualized. Choose the best chart_type for the data:
+  - "bar": comparing quantities across categories (workload, cards per list)
+  - "pie"/"doughnut": showing proportions (% of cards per status)
+  - "line": showing trends over time
+- chart_data can be null if only text summary is appropriate
+- insights: 2-4 key takeaways in Vietnamese, actionable when possible
+- est_hours: Cards may have estimated hours in their title (e.g. "Fix bug - Est: 4h"). Use these for workload analysis
+- Always respond in Vietnamese for summary and insights
+- Keep numbers accurate — count from the actual data provided
 "#;
 
 /// Format a minimal result header
@@ -101,6 +164,9 @@ pub fn format_ai_result_header(
             }
         }
         "overdue" => parts.push(format!("{} card quá hạn", count)),
+        "analyze" => parts.push(format!("📊 Phân tích {} card", count)),
+        "summary" => parts.push(format!("📋 Tổng quan {} card", count)),
+        "compare" => parts.push(format!("⚖️ So sánh {} card", count)),
         _ => {
             if let Some(k) = keyword {
                 parts.push(format!("{} card cho \"{}\"", count, k));

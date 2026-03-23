@@ -2,7 +2,7 @@ use axum::{extract::State, http::StatusCode, Json};
 use std::sync::Arc;
 
 use crate::models::chat::{ChatRequest, ChatResponse};
-use crate::services::intent;
+use crate::services::{analysis, intent};
 use crate::AppState;
 
 pub async fn chat_handler(
@@ -20,19 +20,41 @@ pub async fn chat_handler(
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Query error: {}", e)))?;
 
+    // 3. AI analysis (Pass 2) — only for analysis-type intents
+    let analysis_data = if intent::needs_analysis_pass(&parsed_intent.intent, &payload.message) && !matched_cards.is_empty() {
+        tracing::info!("📊 Running AI analysis on {} cards...", matched_cards.len());
+        match analysis::run_analysis(&matched_cards, &payload.message, &state.ai_providers).await {
+            Ok(data) => {
+                tracing::info!("📊 Analysis complete");
+                Some(data)
+            }
+            Err(e) => {
+                tracing::warn!("📊 Analysis failed, continuing without: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let elapsed = start.elapsed().as_millis();
 
-    let provider_info = if parsed_intent.intent.is_empty() {
+    let provider_info = if analysis_data.is_some() {
+        format!("ai+analysis ({}ms)", elapsed)
+    } else if parsed_intent.intent.is_empty() {
         format!("keyword ({}ms)", elapsed)
     } else {
         format!("ai+local ({}ms)", elapsed)
     };
 
-    tracing::info!("⚡ Response in {}ms ({} cards found)", elapsed, matched_cards.len());
+    tracing::info!("⚡ Response in {}ms ({} cards found, analysis: {})",
+        elapsed, matched_cards.len(), analysis_data.is_some());
 
     Ok(Json(ChatResponse {
         response,
         matched_cards,
         provider: provider_info,
+        analysis: analysis_data,
     }))
 }
+

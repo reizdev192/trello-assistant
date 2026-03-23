@@ -1,10 +1,27 @@
 use anyhow::Result;
 use serde::Deserialize;
 use std::sync::Arc;
+use unicode_normalization::UnicodeNormalization;
 
 use crate::models::card::Card;
 use crate::services::ai::{AiProvider, prompts};
 use crate::services::cache::CacheService;
+
+/// Check if the intent requires AI analysis (Pass 2).
+/// Checks both the parsed intent AND the original user message for analysis keywords.
+pub fn needs_analysis_pass(intent: &str, user_message: &str) -> bool {
+    if matches!(intent, "analyze" | "summary" | "compare") {
+        return true;
+    }
+    // Detect analysis intent from user message even when AI picked a filter intent
+    let normalized_msg: String = user_message.nfc().collect();
+    let msg = normalized_msg.to_lowercase();
+    msg.contains("phân tích") || msg.contains("analyze") || msg.contains("analysis")
+        || msg.contains("tóm tắt") || msg.contains("summary") || msg.contains("tổng quan")
+        || msg.contains("thống kê") || msg.contains("workload") || msg.contains("báo cáo")
+        || msg.contains("report") || msg.contains("biểu đồ") || msg.contains("chart")
+        || msg.contains("so sánh") || msg.contains("compare")
+}
 
 /// AI-parsed intent from JSON extraction
 #[derive(Debug, Deserialize, Default)]
@@ -185,6 +202,18 @@ pub async fn execute_ai_intent(
         }
         "due" => cache.get_cards_with_due().await?,
         "overdue" => cache.get_overdue_cards().await?,
+        // Analysis intents: fetch cards using available filters, then AI analyzes
+        "analyze" | "summary" | "compare" => {
+            if let Some(ref ln) = parsed.list {
+                cache.get_cards_by_list(ln).await?
+            } else if let Some(ref m) = parsed.member {
+                cache.get_cards_by_member(m).await?
+            } else if let Some(ref l) = parsed.label {
+                cache.get_cards_by_label(l).await?
+            } else {
+                cache.get_all_cards().await?
+            }
+        }
         "search" => {
             if let Some(ref kw) = parsed.keyword {
                 cache.search_cards(kw).await?
@@ -205,11 +234,13 @@ pub async fn execute_ai_intent(
     // Apply additional cross-filters (combine multiple conditions)
     if effective_intent != "filter_member" {
         if let Some(ref m) = parsed.member {
-            let m_lower = m.to_lowercase();
+            let m_lower = m.trim().to_lowercase();
+            let m_clean = m.trim();
             cards.retain(|c| {
                 c.members.iter().any(|mem| {
                     mem.username.to_lowercase().contains(&m_lower)
                         || mem.full_name.to_lowercase().contains(&m_lower)
+                        || mem.id == m_clean
                 })
             });
         }
@@ -217,7 +248,7 @@ pub async fn execute_ai_intent(
 
     if effective_intent != "filter_label" {
         if let Some(ref l) = parsed.label {
-            let l_lower = l.to_lowercase();
+            let l_lower = l.trim().to_lowercase();
             cards.retain(|c| {
                 c.labels.iter().any(|lbl| {
                     lbl.name.to_lowercase().contains(&l_lower)
@@ -229,8 +260,10 @@ pub async fn execute_ai_intent(
 
     if effective_intent != "filter_list" {
         if let Some(ref ln) = parsed.list {
-            let ln_lower = ln.to_lowercase();
+            let ln_lower = ln.trim().to_lowercase();
+            let ln_clean = ln.trim();
             cards.retain(|c| {
+                c.id_list == ln_clean ||
                 c.list_name.as_ref().map_or(false, |n| n.to_lowercase().contains(&ln_lower))
             });
         }
@@ -276,6 +309,15 @@ pub async fn execute_ai_intent(
 /// Parse user intent using fast keyword detection (fallback)
 pub fn parse_intent_keyword(message: &str) -> UserIntent {
     let msg = message.to_lowercase();
+
+    // Analysis/Summary requests → these will trigger AI Pass 2
+    if msg.contains("phân tích") || msg.contains("analyze") || msg.contains("analysis")
+        || msg.contains("workload") || msg.contains("báo cáo") || msg.contains("report")
+        || msg.contains("biểu đồ") || msg.contains("chart") || msg.contains("breakdown")
+        || msg.contains("estimate") || msg.contains("est hour")
+    {
+        return UserIntent::BoardSummary; // maps to "analyze" intent
+    }
 
     // Board summary
     if msg.contains("tóm tắt") || msg.contains("summary") || msg.contains("trạng thái board")
@@ -350,7 +392,7 @@ fn convert_legacy_to_ai_intent(intent: UserIntent, _original: &str) -> AiParsedI
         UserIntent::FilterByMember(m) => AiParsedIntent { intent: "filter_member".into(), member: Some(m), ..Default::default() },
         UserIntent::DueCards => AiParsedIntent { intent: "due".into(), has_due: Some(true), ..Default::default() },
         UserIntent::OverdueCards => AiParsedIntent { intent: "overdue".into(), overdue_only: Some(true), ..Default::default() },
-        UserIntent::BoardSummary => AiParsedIntent { intent: "summary".into(), ..Default::default() },
+        UserIntent::BoardSummary => AiParsedIntent { intent: "analyze".into(), ..Default::default() },
     }
 }
 

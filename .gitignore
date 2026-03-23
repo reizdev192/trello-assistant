@@ -25,10 +25,7 @@ frontend/dist/
 .DS_Store
 Thumbs.db
 
-# Ollama models (managed by Ollama, not git)
-models/
-*.gguf
-*.bin
+
 
 # Logs
 *.log

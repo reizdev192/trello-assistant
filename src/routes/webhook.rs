@@ -33,8 +33,6 @@ pub struct TrelloActionData {
     pub list: Option<TrelloWebhookList>,
     #[serde(rename = "listAfter")]
     pub list_after: Option<TrelloWebhookList>,
-    #[serde(rename = "listBefore")]
-    pub list_before: Option<TrelloWebhookList>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -53,7 +51,6 @@ pub struct TrelloWebhookCard {
 
 #[derive(Deserialize, Debug)]
 pub struct TrelloWebhookList {
-    pub id: String,
     pub name: Option<String>,
 }
 

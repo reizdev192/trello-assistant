@@ -17,8 +17,28 @@ import {
   type BoardList,
   type BoardLabel,
   type StatsResponse,
+  type AnalysisData,
 } from './services/api';
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  ArcElement,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
+} from 'chart.js';
+import { Bar, Pie, Doughnut, Line } from 'react-chartjs-2';
 import './index.css';
+
+// Register Chart.js components
+ChartJS.register(
+  CategoryScale, LinearScale, BarElement, ArcElement,
+  PointElement, LineElement, Title, Tooltip, Legend
+);
 
 interface Message {
   id: string;
@@ -27,6 +47,7 @@ interface Message {
   matchedCards?: TrelloCard[];
   provider?: string;
   timestamp: Date;
+  analysis?: AnalysisData;
 }
 
 const INITIAL_SHOW = 8;
@@ -94,6 +115,147 @@ function CardGrid({ cards }: { cards: TrelloCard[] }) {
       )}
     </div>
   );
+}
+
+/* ── Chart Color Palette ── */
+const CHART_COLORS = [
+  'rgba(99, 102, 241, 0.8)',   // indigo
+  'rgba(16, 185, 129, 0.8)',   // emerald
+  'rgba(245, 158, 11, 0.8)',   // amber
+  'rgba(239, 68, 68, 0.8)',    // red
+  'rgba(139, 92, 246, 0.8)',   // violet
+  'rgba(6, 182, 212, 0.8)',    // cyan
+  'rgba(236, 72, 153, 0.8)',   // pink
+  'rgba(34, 197, 94, 0.8)',    // green
+  'rgba(251, 146, 60, 0.8)',   // orange
+  'rgba(59, 130, 246, 0.8)',   // blue
+];
+const CHART_BORDERS = CHART_COLORS.map(c => c.replace('0.8', '1'));
+
+/* ── Analysis View Component ── */
+function AnalysisView({ analysis }: { analysis: AnalysisData }) {
+  return (
+    <div className="analysis-view">
+      {/* Summary */}
+      {analysis.summary && (
+        <div className="analysis-summary"
+          dangerouslySetInnerHTML={{
+            __html: analysis.summary
+              .replace(/## (.+)/g, '<h3>$1</h3>')
+              .replace(/### (.+)/g, '<h4>$1</h4>')
+              .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+              .replace(/\n- /g, '<br/>• ')
+              .replace(/\n/g, '<br/>')
+              .replace(/\|(.+)\|/g, (match) => {
+                // Basic markdown table rendering
+                const rows = match.split('<br/>').filter(r => r.includes('|'));
+                if (rows.length < 2) return match;
+                const header = rows[0].split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+                const body = rows.slice(2).map(row => {
+                  const cells = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+                  return `<tr>${cells}</tr>`;
+                }).join('');
+                return `<table class="analysis-table"><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+              })
+          }}
+        />
+      )}
+
+      {/* Chart */}
+      {analysis.chart_data && (
+        <div className="analysis-chart">
+          <AnalysisChart data={analysis.chart_data} />
+        </div>
+      )}
+
+      {/* Time Stats */}
+      {analysis.time_stats && analysis.time_stats.total_est_hours > 0 && (
+        <div className="analysis-time-stats">
+          <h4>⏱ Estimated Hours</h4>
+          <div className="time-stat-cards">
+            <div className="time-stat-card">
+              <span className="time-stat-num">{analysis.time_stats.total_est_hours}h</span>
+              <span className="time-stat-label">Tổng Est</span>
+            </div>
+            <div className="time-stat-card">
+              <span className="time-stat-num">{analysis.time_stats.avg_hours_per_card}h</span>
+              <span className="time-stat-label">TB/card</span>
+            </div>
+            <div className="time-stat-card">
+              <span className="time-stat-num">{analysis.time_stats.cards_with_est}</span>
+              <span className="time-stat-label">Có Est</span>
+            </div>
+            <div className="time-stat-card">
+              <span className="time-stat-num">{analysis.time_stats.cards_without_est}</span>
+              <span className="time-stat-label">Thiếu Est</span>
+            </div>
+          </div>
+          {analysis.time_stats.by_member.length > 0 && (
+            <div className="time-member-list">
+              {analysis.time_stats.by_member.slice(0, 8).map(m => (
+                <div key={m.name} className="time-member-row">
+                  <span className="time-member-name">{m.name}</span>
+                  <span className="time-member-stats">{m.cards} cards · {m.hours}h</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Insights */}
+      {analysis.insights && analysis.insights.length > 0 && (
+        <div className="analysis-insights">
+          <h4>💡 Insights</h4>
+          <ul>
+            {analysis.insights.map((insight, i) => (
+              <li key={i}>{insight}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Chart Renderer ── */
+function AnalysisChart({ data }: { data: { chart_type: string; labels: string[]; datasets: { label: string; data: number[] }[] } }) {
+  const chartData = {
+    labels: data.labels,
+    datasets: data.datasets.map((ds, i) => ({
+      label: ds.label,
+      data: ds.data,
+      backgroundColor: data.chart_type === 'bar'
+        ? CHART_COLORS[i % CHART_COLORS.length]
+        : CHART_COLORS.slice(0, data.labels.length),
+      borderColor: data.chart_type === 'bar'
+        ? CHART_BORDERS[i % CHART_BORDERS.length]
+        : CHART_BORDERS.slice(0, data.labels.length),
+      borderWidth: 1,
+    })),
+  };
+
+  const options = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom' as const,
+        labels: { color: '#94a3b8', font: { size: 11 } },
+      },
+    },
+    scales: data.chart_type === 'bar' || data.chart_type === 'line' ? {
+      x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.1)' } },
+      y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: 'rgba(148,163,184,0.1)' } },
+    } : undefined,
+  };
+
+  switch (data.chart_type) {
+    case 'pie': return <Pie data={chartData} options={options} />;
+    case 'doughnut': return <Doughnut data={chartData} options={options} />;
+    case 'line': return <Line data={chartData} options={options} />;
+    default: return <Bar data={chartData} options={options} />;
+  }
 }
 
 /* ── Settings Popup ── */
@@ -549,6 +711,10 @@ function App() {
   const [slashQuery, setSlashQuery] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
 
+  // Substitution map: display name → identifier (for precise backend matching)
+  // e.g. { "@Xuân Phạm": "@xuanpham", "#Task list - DEV": "#list_id_123" }
+  const mentionSubs = useRef<Record<string, string>>({});
+
   // Quick filter state
   const [filterList, setFilterList] = useState<string | null>(null);
   const [filterMember, setFilterMember] = useState<string | null>(null);
@@ -641,21 +807,27 @@ function App() {
     setMentionQuery(null);
   };
 
-  // Select a member from dropdown
+  // Select a member from dropdown — show full_name in input, map to username
   const selectMember = (member: BoardMember) => {
     const before = input.slice(0, mentionStart);
     const afterCursor = input.slice(mentionStart + 1 + (mentionQuery?.length || 0));
+    // Show readable name in input
     setInput(`${before}@${member.full_name}${afterCursor ? afterCursor : ' '}`);
+    // Track substitution: display → backend identifier
+    mentionSubs.current[`@${member.full_name}`] = `@${member.username}`;
     setMentionQuery(null);
     setMentionStart(-1);
     inputRef.current?.focus();
   };
 
-  // Select a list from # dropdown
+  // Select a list from # dropdown — show list name in input, map to list ID
   const selectList = (list: BoardList) => {
     const before = input.slice(0, hashStart);
     const afterCursor = input.slice(hashStart + 1 + (hashQuery?.length || 0));
+    // Show readable name in input
     setInput(`${before}#${list.name}${afterCursor ? afterCursor : ' '}`);
+    // Track substitution: display → backend identifier
+    mentionSubs.current[`#${list.name}`] = `#${list.id}`;
     setHashQuery(null);
     setHashStart(-1);
     inputRef.current?.focus();
@@ -673,27 +845,40 @@ function App() {
     if (!filterList && !filterMember && !filterLabel && !filterDue) return;
     setLoading(true);
 
-    const parts: string[] = [];
-    if (filterList) parts.push(`#${filterList}`);
-    if (filterMember) parts.push(`@${filterMember}`);
-    if (filterLabel) parts.push(`label:${filterLabel}`);
-    if (filterDue === 'overdue') parts.push('quá hạn');
-    else if (filterDue === 'due_soon') parts.push('sắp hạn');
-    else if (filterDue === 'no_due') parts.push('chưa có deadline');
+    const displayParts: string[] = [];  // For chat message (human readable)
+    const apiParts: string[] = [];      // For API (IDs/usernames)
 
-    const query = parts.join(' ');
+    if (filterList) {
+      const listObj = allLists.find(l => l.name === filterList);
+      displayParts.push(`#${filterList}`);
+      apiParts.push(`#${listObj ? listObj.id : filterList}`);
+    }
+    if (filterMember) {
+      const memberObj = allMembers.find(m => m.full_name === filterMember);
+      displayParts.push(`@${filterMember}`);
+      apiParts.push(`@${memberObj ? memberObj.username : filterMember}`);
+    }
+    if (filterLabel) {
+      displayParts.push(`label:${filterLabel}`);
+      apiParts.push(`label:${filterLabel}`);
+    }
+    if (filterDue === 'overdue') { displayParts.push('quá hạn'); apiParts.push('quá hạn'); }
+    else if (filterDue === 'due_soon') { displayParts.push('sắp hạn'); apiParts.push('sắp hạn'); }
+    else if (filterDue === 'no_due') { displayParts.push('chưa có deadline'); apiParts.push('chưa có deadline'); }
+
     const userMsg: Message = {
       id: crypto.randomUUID(), role: 'user',
-      content: `🔍 Filter: ${query}`, timestamp: new Date(),
+      content: `🔍 Filter: ${displayParts.join(' ')}`, timestamp: new Date(),
     };
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      const response: ChatResponse = await sendMessage(query);
+      const response: ChatResponse = await sendMessage(apiParts.join(' '));
       setMessages(prev => [...prev, {
         id: crypto.randomUUID(), role: 'assistant',
         content: response.response, matchedCards: response.matched_cards,
         provider: response.provider, timestamp: new Date(),
+        analysis: response.analysis,
       }]);
     } catch (error) {
       setMessages(prev => [...prev, {
@@ -714,16 +899,29 @@ function App() {
 
   const hasActiveFilter = filterList || filterMember || filterLabel || filterDue;
 
+  // Resolve display text → API identifiers before sending
+  const resolveMessageForApi = (displayText: string): string => {
+    let resolved = displayText;
+    // Apply all tracked substitutions (longest first to avoid partial matches)
+    const subs = Object.entries(mentionSubs.current)
+      .sort(([a], [b]) => b.length - a.length);
+    for (const [display, identifier] of subs) {
+      resolved = resolved.replace(display, identifier);
+    }
+    return resolved;
+  };
+
   const handleSend = async (text?: string) => {
-    const messageText = text || input.trim();
-    if (!messageText || loading) return;
+    const displayText = text || input.trim();
+    if (!displayText || loading) return;
 
     setMentionQuery(null);
 
+    // User sees the display text (with names)
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
-      content: messageText,
+      content: displayText,
       timestamp: new Date(),
     };
 
@@ -731,8 +929,11 @@ function App() {
     setInput('');
     setLoading(true);
 
+    // API receives resolved text (with IDs/usernames)
+    const apiMessage = resolveMessageForApi(displayText);
+
     try {
-      const response: ChatResponse = await sendMessage(messageText);
+      const response: ChatResponse = await sendMessage(apiMessage);
       const assistantMessage: Message = {
         id: crypto.randomUUID(),
         role: 'assistant',
@@ -740,6 +941,7 @@ function App() {
         matchedCards: response.matched_cards,
         provider: response.provider,
         timestamp: new Date(),
+        analysis: response.analysis,
       };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) {
@@ -909,9 +1111,15 @@ function App() {
                   <span dangerouslySetInnerHTML={{
                     __html: msg.content
                       .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                      .replace(/@(\S+)/g, '<span class="mention-tag">@$1</span>')
+                      .replace(/#(\S+)/g, '<span class="list-ref-tag">#$1</span>')
                       .replace(/\n/g, '<br/>')
                   }} />
                 </div>
+
+                {msg.analysis && (
+                  <AnalysisView analysis={msg.analysis} />
+                )}
 
                 {msg.matchedCards && msg.matchedCards.length > 0 && (
                   <CardGrid cards={msg.matchedCards} />

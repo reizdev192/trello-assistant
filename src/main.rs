@@ -4,7 +4,7 @@ mod routes;
 mod services;
 
 use std::net::SocketAddr;
-use std::process::Stdio;
+
 use std::sync::Arc;
 
 use axum::{
@@ -30,68 +30,6 @@ pub struct AppState {
     pub webhook_info: Mutex<Option<StoredWebhookInfo>>,
 }
 
-/// Check if Ollama process is reachable
-async fn is_ollama_running(url: &str) -> bool {
-    let client = reqwest::Client::new();
-    client
-        .get(format!("{}/api/tags", url))
-        .timeout(std::time::Duration::from_secs(2))
-        .send()
-        .await
-        .is_ok()
-}
-
-/// Check if `ollama` binary exists on the system
-fn is_ollama_installed() -> bool {
-    std::process::Command::new("which")
-        .arg("ollama")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-}
-
-/// Auto-start Ollama server if it's installed but not running
-async fn ensure_ollama_running(url: &str) -> bool {
-    if is_ollama_running(url).await {
-        tracing::info!("✅ Ollama is already running");
-        return true;
-    }
-
-    if !is_ollama_installed() {
-        tracing::warn!("⚠️  Ollama is not installed. Install it from https://ollama.com");
-        tracing::warn!("   macOS: brew install ollama  |  Linux: curl -fsSL https://ollama.com/install.sh | sh");
-        return false;
-    }
-
-    tracing::info!("🔄 Ollama is installed but not running. Starting 'ollama serve'...");
-
-    let child = std::process::Command::new("ollama")
-        .arg("serve")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
-
-    match child {
-        Ok(_) => {
-            tracing::info!("🔄 Spawned 'ollama serve' process. Waiting for it to be ready...");
-            for i in 1..=15 {
-                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                if is_ollama_running(url).await {
-                    tracing::info!("✅ Ollama started successfully (took {}s)", i);
-                    return true;
-                }
-            }
-            tracing::warn!("⚠️  Ollama process spawned but still not responding after 15s");
-            false
-        }
-        Err(e) => {
-            tracing::error!("❌ Failed to start Ollama: {}", e);
-            false
-        }
-    }
-}
 
 /// Detect ngrok tunnel URL for webhook callback
 async fn detect_ngrok_url(server_port: u16) -> Option<String> {
@@ -146,22 +84,6 @@ async fn main() -> anyhow::Result<()> {
 
     let cache = CacheService::new(&config)?;
     tracing::info!("✅ Redis cache initialized");
-
-    // --- Auto-start Ollama if needed ---
-    let needs_ollama = config.ai_provider == "ollama" || config.ai_provider == "auto";
-    if needs_ollama {
-        let ollama_ready = ensure_ollama_running(&config.ollama_url).await;
-        if ollama_ready {
-            let ollama = services::ai::ollama::OllamaProvider::new(
-                config.ollama_url.clone(),
-                config.ollama_model.clone(),
-            );
-            match ollama.ensure_model().await {
-                Ok(()) => tracing::info!("✅ Ollama model '{}' is ready", config.ollama_model),
-                Err(e) => tracing::warn!("⚠️  Ollama model check failed: {}", e),
-            }
-        }
-    }
 
     // Initialize AI providers
     let ai_providers = services::ai::create_providers(&config);

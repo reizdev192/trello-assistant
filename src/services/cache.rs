@@ -212,14 +212,26 @@ impl CacheService {
             .collect())
     }
 
-    pub async fn get_cards_by_list(&self, list_name: &str) -> Result<Vec<Card>> {
+    pub async fn get_cards_by_list(&self, list_query: &str) -> Result<Vec<Card>> {
         let cards = self.get_all_cards().await?;
-        let list_lower = list_name.to_lowercase();
+        let query_clean = list_query.trim();
+        let query_lower = query_clean.to_lowercase();
 
+        // First try exact ID match (frontend sends list IDs via #list_id)
+        let by_id: Vec<Card> = cards.iter()
+            .filter(|card| card.id_list == query_clean)
+            .cloned()
+            .collect();
+
+        if !by_id.is_empty() {
+            return Ok(by_id);
+        }
+
+        // Fallback: match by list name (for AI-parsed names or manual input)
         Ok(cards
             .into_iter()
             .filter(|card| {
-                card.list_name.as_ref().map_or(false, |ln| ln.to_lowercase().contains(&list_lower))
+                card.list_name.as_ref().map_or(false, |ln| ln.to_lowercase().contains(&query_lower))
             })
             .collect())
     }

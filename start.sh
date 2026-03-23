@@ -19,7 +19,6 @@ fi
 
 echo ""
 echo "🦀 Starting Rust server..."
-echo "   (Ollama auto-start + model auto-pull is handled in-app)"
 echo ""
 
 cargo run
